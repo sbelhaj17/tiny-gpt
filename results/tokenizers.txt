@@ -1,0 +1,3 @@
+27,630 stories, 22,077,118 bytes
+mine: 5,550,785 tokens, 3.98 bytes per token, 3,809 of 4,096 ids used, 0.9s to encode
+gpt2: 5,441,394 tokens, 4.06 bytes per token, 11,515 of 50,257 ids used, 0.7s to encode
