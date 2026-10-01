@@ -3,7 +3,7 @@
 # setting to results/bench.jsonl. Each setting runs in its own process, so
 # compiled kernels and cached GPU memory do not carry over between them.
 #
-#   scripts/bench.sh                  # every group, about 15 minutes on an M4
+#   scripts/bench.sh                  # every group, about 10 minutes on an M4
 #   scripts/bench.sh precision batch  # only some groups
 #
 # REPEATS=2 runs the whole list twice, so slow drift (heat, other programs)
@@ -25,8 +25,11 @@ group() {
     case $1 in
     precision)
         run --dtype fp32
-        run --dtype fp16
-        run --dtype bf16 ;;
+        run --dtype bf16
+        # fp16 needs foreach AdamW on MPS (see make_optimizer), so bf16 is
+        # also timed with foreach for a like-for-like comparison
+        run --dtype fp16 --optimizer foreach
+        run --dtype bf16 --optimizer foreach ;;
     optimizer)
         run --optimizer fused
         run --optimizer foreach

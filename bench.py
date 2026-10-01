@@ -1,9 +1,10 @@
 """Times full training steps (forward, backward, clip, AdamW) on real batches.
 
-    python bench.py configs/small.json --dtype bf16 --batch_size 32
-    python bench.py configs/small.json --vocab_size 50257    # as if using GPT-2's tokenizer
+    python bench.py --dtype fp32 --batch_size 64
+    python bench.py --vocab_size 50257    # as if using GPT-2's tokenizer
 
-Takes the same flags as train.py plus the ones below, and prints one JSON line.
+Takes the same flags as train.py (defaults: TrainConfig, the 6-layer model)
+plus the ones below, and prints one JSON line.
 Each configuration should run in its own process, so one run's compiled
 kernels and cached memory do not leak into the next (scripts/bench.sh does this).
 """
