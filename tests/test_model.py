@@ -119,15 +119,27 @@ def test_memorizes_one_sequence(pos_emb):
     assert torch.equal(out, seq)
 
 
-def test_generate_stops_at_stop_token():
-    torch.manual_seed(0)
-    model = GPT(small()).eval()
-    start = torch.zeros(1, 1, dtype=torch.long)
-    greedy = model.generate(start, max_new_tokens=10, temperature=0)
-    stop = greedy[0, 3].item()
-    out = model.generate(start, max_new_tokens=10, temperature=0, stop_token=stop)
-    assert out[0, -1].item() == stop
-    assert out.size(1) == (greedy[0, 1:] == stop).nonzero()[0].item() + 2
+class CountingGPT(GPT):
+    """Always predicts the previous token plus one, so greedy output is known."""
+
+    def forward(self, idx, targets=None):
+        nxt = (idx + 1) % self.cfg.vocab_size
+        return torch.nn.functional.one_hot(nxt, self.cfg.vocab_size).float(), None
+
+
+def test_generate_stops_once_every_row_has_stopped():
+    model = CountingGPT(small()).eval()
+    start = torch.tensor([[0], [5]])
+    # Row 1 reaches 7 after two tokens and row 0 after seven, so generation
+    # has to keep going for row 0 and then stop.
+    out = model.generate(start, max_new_tokens=20, temperature=0, stop_token=7)
+    assert out.tolist() == [list(range(0, 8)), list(range(5, 13))]
+
+
+def test_generate_without_stop_token_runs_to_the_limit():
+    model = CountingGPT(small()).eval()
+    out = model.generate(torch.tensor([[0]]), max_new_tokens=10, temperature=0)
+    assert out.tolist() == [list(range(11))]
 
 
 def test_generate_runs_past_the_block_size():

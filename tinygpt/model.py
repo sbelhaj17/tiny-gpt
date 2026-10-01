@@ -145,6 +145,9 @@ class GPT(nn.Module):
 
     @torch.no_grad()
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, stop_token=None):
+        # No key/value cache: each new token reruns the whole window. At a
+        # 256-token block that is fast enough for sampling a few stories.
+        done = torch.zeros(idx.size(0), dtype=torch.bool, device=idx.device)
         for _ in range(max_new_tokens):
             logits, _ = self(idx[:, -self.cfg.block_size:])
             logits = logits[:, -1, :].float()
@@ -157,6 +160,11 @@ class GPT(nn.Module):
                     logits = logits.masked_fill(logits < kth, float("-inf"))
                 nxt = torch.multinomial(logits.softmax(dim=-1), num_samples=1)
             idx = torch.cat([idx, nxt], dim=1)
-            if stop_token is not None and (nxt == stop_token).all():
-                break
+            if stop_token is not None:
+                # Rows finish at different steps; stop once every row has
+                # produced the stop token at least once. The caller trims
+                # whatever a finished row wrote after it.
+                done |= nxt[:, 0] == stop_token
+                if done.all():
+                    break
         return idx
