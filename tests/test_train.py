@@ -94,3 +94,21 @@ def test_resume_matches_an_uninterrupted_run(data_dir, tmp_path):
     for k in a["model"]:
         assert torch.equal(a["model"][k], b["model"][k]), k
     assert a["val_loss"] == b["val_loss"]
+
+
+def test_full_validation_covers_every_window_once(data_dir):
+    from evaluate import full_loss
+    from tinygpt.model import GPT, GPTConfig
+
+    torch.manual_seed(0)
+    model = GPT(GPTConfig(vocab_size=VOCAB, block_size=16, n_layer=1, n_head=2, n_embd=16)).eval()
+    tokens = np.fromfile(data_dir / "val.bin", dtype=np.uint16)[: 16 * 7 + 5]
+    # batch size 3 does not divide the 7 windows, so the last batch is short
+    loss, count = full_loss(model, tokens, block_size=16, batch_size=3, device="cpu")
+    assert count == 7 * 16
+    by_hand = []
+    for i in range(7):
+        w = torch.from_numpy(tokens[i * 16 : i * 16 + 17].astype(np.int64))[None]
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            by_hand.append(model(w[:, :-1], w[:, 1:])[1].item())
+    assert loss == pytest.approx(np.mean(by_hand), rel=1e-6)

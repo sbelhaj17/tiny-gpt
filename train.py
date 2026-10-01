@@ -231,6 +231,9 @@ def main(argv=None):
 
         if step % cfg.log_interval == 0 or step == cfg.max_steps:
             loss = loss.item()  # waits for the GPU, so only do it when logging
+            if not math.isfinite(loss):
+                # Stop before a checkpoint overwrites the last good one.
+                raise RuntimeError(f"loss is {loss} at step {step}; rerun with --resume true to restart from the last checkpoint")
             now = time.time()
             elapsed += now - t_last
             tok_s = (step - step_last) * tokens_per_step / (now - t_last)

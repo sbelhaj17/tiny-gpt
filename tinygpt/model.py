@@ -140,7 +140,7 @@ class GPT(nn.Module):
         if targets is None:
             return logits, None
         # The softmax over the vocabulary is done in fp32 even under autocast.
-        loss = F.cross_entropy(logits.float().view(-1, logits.size(-1)), targets.view(-1))
+        loss = F.cross_entropy(logits.float().view(-1, logits.size(-1)), targets.reshape(-1))
         return logits, loss
 
     @torch.no_grad()
