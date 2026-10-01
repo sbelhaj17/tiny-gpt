@@ -1,0 +1,11 @@
+device: mps, torch 2.10.0
+matmul float32   8192x384x1536: 3.25 TFLOP/s, 4096x4096x4096: 3.22 TFLOP/s
+matmul float16   8192x384x1536: 3.68 TFLOP/s, 4096x4096x4096: 3.73 TFLOP/s
+matmul bfloat16  8192x384x1536: 3.70 TFLOP/s, 4096x4096x4096: 3.71 TFLOP/s
+attention float32  sdpa    forward   8.3 ms, forward+backward  16.8 ms
+attention float32  matmul  forward   5.4 ms, forward+backward  15.7 ms
+attention bfloat16 sdpa    forward   9.9 ms, forward+backward  19.0 ms
+attention bfloat16 matmul  forward   3.5 ms, forward+backward   9.3 ms
+step fp32 matmul  forward  149 ms, backward  271 ms, clip+AdamW   7 ms
+step bf16 matmul  forward  146 ms, backward  270 ms, clip+AdamW   7 ms
+step bf16 sdpa    forward  177 ms, backward  273 ms, clip+AdamW   7 ms
