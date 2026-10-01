@@ -137,3 +137,14 @@ def test_overflowed_fp16_step_on_mps(fused):
     scaler.update()
     skipped = torch.equal(p.detach().cpu(), torch.ones(4))
     assert skipped != fused
+
+
+def test_config_file_then_flags(tmp_path):
+    path = tmp_path / "c.json"
+    path.write_text(json.dumps({"n_layer": 3, "lr": 5e-4, "compile": True}))
+    cfg = train.parse_config([str(path), "--lr", "2e-3", "--compile", "false"])
+    assert (cfg.n_layer, cfg.lr, cfg.compile) == (3, 2e-3, False)
+    assert cfg.n_embd == TrainConfig().n_embd
+    path.write_text(json.dumps({"n_layers": 3}))  # a typo must not be ignored
+    with pytest.raises(TypeError):
+        train.parse_config([str(path)])
