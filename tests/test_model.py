@@ -47,7 +47,7 @@ def test_output_layer_shares_the_embedding():
 
 
 @pytest.mark.parametrize("pos_emb", POS)
-@pytest.mark.parametrize("attn", ["sdpa", "naive"])
+@pytest.mark.parametrize("attn", ["sdpa", "matmul"])
 def test_future_tokens_do_not_change_past_logits(pos_emb, attn):
     torch.manual_seed(0)
     model = GPT(small(pos_emb=pos_emb, attn=attn)).eval()
@@ -76,13 +76,13 @@ def test_past_tokens_do_change_future_logits():
 
 
 @pytest.mark.parametrize("pos_emb", POS)
-def test_fused_attention_matches_reference(pos_emb):
+def test_sdpa_matches_matmul_attention(pos_emb):
     torch.manual_seed(0)
-    fast = GPT(small(pos_emb=pos_emb, attn="sdpa")).eval()
-    ref = GPT(small(pos_emb=pos_emb, attn="naive")).eval()
-    ref.load_state_dict(fast.state_dict())
+    a = GPT(small(pos_emb=pos_emb, attn="sdpa")).eval()
+    b = GPT(small(pos_emb=pos_emb, attn="matmul")).eval()
+    b.load_state_dict(a.state_dict())
     idx = torch.randint(0, 64, (2, 32))
-    assert torch.allclose(fast(idx)[0], ref(idx)[0], atol=1e-5)
+    assert torch.allclose(a(idx)[0], b(idx)[0], atol=1e-5)
 
 
 def test_rope_scores_depend_only_on_distance():

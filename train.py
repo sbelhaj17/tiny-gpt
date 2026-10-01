@@ -33,7 +33,7 @@ class TrainConfig:
     n_embd: int = 384
     block_size: int = 256
     pos_emb: str = "rope"
-    attn: str = "sdpa"
+    attn: str = "matmul"
     # optimization
     batch_size: int = 32
     grad_accum: int = 1

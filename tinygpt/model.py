@@ -14,10 +14,13 @@ class GPTConfig:
     n_head: int = 6
     n_embd: int = 384
     pos_emb: str = "rope"  # "rope" or "learned"
-    attn: str = "sdpa"  # "sdpa" or "naive"; the naive path is the reference the tests check sdpa against
+    # "matmul" writes attention out as two matmuls and a softmax; "sdpa" is
+    # PyTorch's fused kernel. On MPS the written-out version is faster (see
+    # the README), and the tests check the two against each other.
+    attn: str = "matmul"
 
 
-def naive_attention(q, k, v):
+def matmul_attention(q, k, v):
     T = q.size(-2)
     att = (q @ k.transpose(-2, -1)) / math.sqrt(q.size(-1))
     future = torch.ones(T, T, dtype=torch.bool, device=q.device).triu(1)
@@ -45,6 +48,8 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         assert cfg.n_embd % cfg.n_head == 0
+        if cfg.attn not in ("matmul", "sdpa"):
+            raise ValueError(f"unknown attn {cfg.attn!r}")
         self.n_head = cfg.n_head
         self.attn = cfg.attn
         self.qkv = nn.Linear(cfg.n_embd, 3 * cfg.n_embd, bias=False)
@@ -59,7 +64,7 @@ class CausalSelfAttention(nn.Module):
         if self.attn == "sdpa":
             y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
         else:
-            y = naive_attention(q, k, v)
+            y = matmul_attention(q, k, v)
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         return self.proj(y)
 

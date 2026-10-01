@@ -35,8 +35,10 @@ group() {
         run --optimizer foreach
         run --optimizer loop ;;
     attention)
+        run --attn matmul
         run --attn sdpa
-        run --attn naive ;;
+        run --dtype fp32 --attn matmul
+        run --dtype fp32 --attn sdpa ;;
     compile)
         run --compile false
         run --compile true ;;
