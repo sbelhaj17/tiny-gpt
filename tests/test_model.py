@@ -1,0 +1,137 @@
+import pytest
+import torch
+
+from tinygpt.model import GPT, GPTConfig, apply_rope, rope_tables
+
+POS = ["rope", "learned"]
+
+
+def small(**kw):
+    cfg = dict(vocab_size=64, block_size=32, n_layer=2, n_head=4, n_embd=32)
+    cfg.update(kw)
+    return GPTConfig(**cfg)
+
+
+@pytest.mark.parametrize("pos_emb", POS)
+def test_shapes(pos_emb):
+    torch.manual_seed(0)
+    model = GPT(small(pos_emb=pos_emb))
+    idx = torch.randint(0, 64, (3, 20))
+    logits, loss = model(idx)
+    assert logits.shape == (3, 20, 64)
+    assert loss is None
+    _, loss = model(idx, idx)
+    assert loss.shape == ()
+    with pytest.raises(AssertionError):
+        model(torch.zeros(1, 33, dtype=torch.long))
+
+
+def test_untrained_loss_is_near_uniform():
+    # Small initial weights give nearly flat logits, so the loss starts at
+    # about ln(vocab_size). A much higher start means a bad init.
+    torch.manual_seed(0)
+    model = GPT(small(vocab_size=4096, n_embd=64))
+    # Targets independent of the inputs. With tied weights, predicting the
+    # input token itself scores well even untrained (its embedding is still in
+    # the residual stream), so idx as its own target would come out lower.
+    idx, targets = torch.randint(0, 4096, (2, 4, 32))
+    _, loss = model(idx, targets)
+    assert abs(loss.item() - torch.log(torch.tensor(4096.0)).item()) < 0.1
+
+
+def test_output_layer_shares_the_embedding():
+    model = GPT(small())
+    assert model.lm_head.weight is model.tok_emb.weight
+    by_hand = sum(p.numel() for n, p in model.named_parameters(remove_duplicate=False) if n != "lm_head.weight")
+    assert model.num_params() == by_hand
+
+
+@pytest.mark.parametrize("pos_emb", POS)
+@pytest.mark.parametrize("attn", ["sdpa", "naive"])
+def test_future_tokens_do_not_change_past_logits(pos_emb, attn):
+    torch.manual_seed(0)
+    model = GPT(small(pos_emb=pos_emb, attn=attn)).eval()
+    idx = torch.randint(0, 64, (2, 32))
+    for t in [1, 7, 31]:
+        changed = idx.clone()
+        changed[:, t:] = torch.randint(0, 64, (2, 32 - t))
+        assert not torch.equal(changed[:, t:], idx[:, t:])
+        a, _ = model(idx)
+        b, _ = model(changed)
+        assert torch.allclose(a[:, :t], b[:, :t], atol=1e-6, rtol=0)
+        assert not torch.allclose(a[:, t:], b[:, t:])
+
+
+def test_past_tokens_do_change_future_logits():
+    # The other half of the mask test: a model that ignored context entirely
+    # would also pass the test above.
+    torch.manual_seed(0)
+    model = GPT(small()).eval()
+    idx = torch.randint(0, 64, (1, 32))
+    changed = idx.clone()
+    changed[0, 0] = (idx[0, 0] + 1) % 64
+    a, _ = model(idx)
+    b, _ = model(changed)
+    assert not torch.allclose(a[0, -1], b[0, -1])
+
+
+@pytest.mark.parametrize("pos_emb", POS)
+def test_fused_attention_matches_reference(pos_emb):
+    torch.manual_seed(0)
+    fast = GPT(small(pos_emb=pos_emb, attn="sdpa")).eval()
+    ref = GPT(small(pos_emb=pos_emb, attn="naive")).eval()
+    ref.load_state_dict(fast.state_dict())
+    idx = torch.randint(0, 64, (2, 32))
+    assert torch.allclose(fast(idx)[0], ref(idx)[0], atol=1e-5)
+
+
+def test_rope_scores_depend_only_on_distance():
+    torch.manual_seed(0)
+    cos, sin = rope_tables(16, 64)
+    q, k = torch.randn(16), torch.randn(16)
+
+    def score(m, n):
+        qm = apply_rope(q, cos[m], sin[m])
+        kn = apply_rope(k, cos[n], sin[n])
+        return (qm * kn).sum()
+
+    assert torch.allclose(score(10, 3), score(50, 43), atol=1e-5)
+    assert torch.allclose(score(0, 0), (q * k).sum(), atol=1e-6)
+    assert not torch.allclose(score(10, 3), score(10, 4))
+
+
+@pytest.mark.parametrize("pos_emb", POS)
+def test_memorizes_one_sequence(pos_emb):
+    # A permutation, so each token has exactly one successor and greedy
+    # decoding from the first token should replay the whole sequence.
+    torch.manual_seed(0)
+    model = GPT(small(pos_emb=pos_emb))
+    seq = torch.randperm(64)[:33].unsqueeze(0)
+    x, y = seq[:, :-1], seq[:, 1:]
+    opt = torch.optim.AdamW(model.parameters(), lr=3e-3)
+    for _ in range(150):
+        _, loss = model(x, y)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+    assert loss.item() < 0.05
+    out = model.eval().generate(seq[:, :1], max_new_tokens=32, temperature=0)
+    assert torch.equal(out, seq)
+
+
+def test_generate_stops_at_stop_token():
+    torch.manual_seed(0)
+    model = GPT(small()).eval()
+    start = torch.zeros(1, 1, dtype=torch.long)
+    greedy = model.generate(start, max_new_tokens=10, temperature=0)
+    stop = greedy[0, 3].item()
+    out = model.generate(start, max_new_tokens=10, temperature=0, stop_token=stop)
+    assert out[0, -1].item() == stop
+    assert out.size(1) == (greedy[0, 1:] == stop).nonzero()[0].item() + 2
+
+
+def test_generate_runs_past_the_block_size():
+    torch.manual_seed(0)
+    model = GPT(small(block_size=8)).eval()
+    out = model.generate(torch.zeros(1, 1, dtype=torch.long), max_new_tokens=20, top_k=5)
+    assert out.shape == (1, 21)
