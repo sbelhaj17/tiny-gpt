@@ -6,6 +6,7 @@
 import argparse
 import json
 import os
+import sys
 
 import matplotlib
 
@@ -61,7 +62,7 @@ def main():
     fig.tight_layout()
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     fig.savefig(args.out)
-    print(f"\nwrote {args.out}")
+    print(f"wrote {args.out}", file=sys.stderr)
 
 
 if __name__ == "__main__":
