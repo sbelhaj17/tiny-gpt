@@ -16,7 +16,7 @@ from dataclasses import asdict
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))  # the repo root, for train
 from train import TrainConfig  # noqa: E402
 
-KEYS = ["n_layer", "n_embd", "batch_size", "dtype", "attn", "optimizer", "compile", "vocab_size", "same_batch"]
+KEYS = ["n_layer", "n_embd", "batch_size", "pos_emb", "dtype", "attn", "optimizer", "compile", "vocab_size", "same_batch"]
 
 
 def main():

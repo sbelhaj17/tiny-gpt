@@ -42,6 +42,9 @@ group() {
     compile)
         run --compile false
         run --compile true ;;
+    position)
+        run --pos_emb rope
+        run --pos_emb learned ;;
     data)
         run
         run --same_batch ;;
@@ -61,7 +64,7 @@ group() {
     esac
 }
 
-groups=${*:-precision optimizer attention compile data batch vocab size}
+groups=${*:-precision optimizer attention compile position data batch vocab size}
 i=0
 while [ $i -lt "$REPEATS" ]; do
     for g in $groups; do group "$g"; done
