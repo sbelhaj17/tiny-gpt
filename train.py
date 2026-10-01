@@ -1,8 +1,8 @@
 """Trains a GPT on the token files written by prepare.py.
 
-    python train.py configs/small.json
-    python train.py configs/small.json --max_steps 200 --out_dir runs/smoke
-    python train.py configs/small.json --resume true     # continue from runs/<name>/ckpt.pt
+    python train.py configs/main.json --out_dir runs/main
+    python train.py configs/main.json --out_dir runs/smoke --max_steps 200
+    python train.py configs/main.json --out_dir runs/main --resume true   # continue from runs/main/ckpt.pt
 
 A config file sets any of the TrainConfig fields below; flags override it.
 """
