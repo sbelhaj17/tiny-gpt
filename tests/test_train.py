@@ -112,3 +112,28 @@ def test_full_validation_covers_every_window_once(data_dir):
         with torch.autocast("cpu", dtype=torch.bfloat16):
             by_hand.append(model(w[:, :-1], w[:, 1:])[1].item())
     assert loss == pytest.approx(np.mean(by_hand), rel=1e-6)
+
+
+def test_fp16_with_fused_adamw_is_refused_on_mps():
+    model = torch.nn.Linear(2, 2)
+    with pytest.raises(ValueError):
+        train.make_optimizer(model, TrainConfig(device="mps", dtype="fp16", optimizer="fused"))
+    train.make_optimizer(model, TrainConfig(device="cpu", dtype="fp16", optimizer="fused"))
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an Apple GPU")
+@pytest.mark.parametrize("fused", [True, False])
+def test_overflowed_fp16_step_on_mps(fused):
+    # The reason for the check above. A gradient scaler has to skip a step
+    # whose gradients overflowed. foreach AdamW does; fused AdamW on MPS does
+    # not. If the fused case starts failing, torch has fixed the bug and
+    # make_optimizer no longer needs to refuse the combination.
+    p = torch.nn.Parameter(torch.ones(4, device="mps"))
+    opt = torch.optim.AdamW([p], lr=0.1, fused=fused, foreach=None if fused else True)
+    scaler = torch.amp.GradScaler("mps", init_scale=4.0)
+    scaler.scale(p.sum() * float("inf")).backward()
+    scaler.unscale_(opt)
+    scaler.step(opt)
+    scaler.update()
+    skipped = torch.equal(p.detach().cpu(), torch.ones(4))
+    assert skipped != fused

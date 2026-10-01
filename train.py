@@ -86,6 +86,12 @@ def model_config(cfg, vocab_size):
 
 
 def make_optimizer(model, cfg):
+    if cfg.optimizer == "fused" and cfg.dtype == "fp16" and cfg.device.startswith("mps"):
+        # In torch 2.10 the fused MPS kernel ignores the gradient scaler's
+        # found-inf flag: a step whose fp16 gradients overflowed is applied
+        # anyway and every weight becomes NaN. foreach skips it correctly.
+        # tests/test_train.py has a check that fails once torch fixes this.
+        raise ValueError("fp16 with fused AdamW is broken on MPS; use --optimizer foreach or --dtype bf16")
     # Decay the matrices (including the embedding) but not the layer norm
     # gains and biases: pulling a gain toward zero just fights the model.
     params = list(model.parameters())
