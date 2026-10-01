@@ -1,0 +1,1 @@
+{"ckpt": "runs/short/ckpt.pt", "step": 1000, "tokens": 5578240, "val_loss": 2.1393, "val_bpb": 0.7799, "seconds": 105.0}
