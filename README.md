@@ -101,11 +101,27 @@ Each run writes `runs/<name>/log.jsonl` and checkpoints; the script then adds th
 
 **Validation and test data.** TinyStories ships only a training and a validation split, so there is no separate test set. The validation split is used for the evaluations during training, for the ablation and for the final numbers. I did not tune anything on it: the main run's settings were fixed before it started, the short run used the same ones, and the ablation does not feed back into the main run.
 
-**The first launch slept through most of the night.** A watcher script I had left to start the full runs once the rest of the pipeline finished launched them at 19:59, while the laptop was asleep with its lid closed, on battery. The `caffeinate -i` in `full_runs.sh` stops idle sleep, not lid-closed sleep. For the next 4.4 hours the main run moved only during the short wakes macOS makes while asleep, about 300 steps in all, and then ran at full speed once the lid was opened at 00:41 (`pmset -g log` has the sleep and wake times). `train.py` timed itself with `time.time()`, the wall clock, which kept counting through the sleep: at step 300 its log claimed 4.4 hours of training for about two minutes of work. Every timer now uses `time.perf_counter()`, which is monotonic and on macOS does not advance during sleep, and `full_runs.sh` says to keep the lid open and the power connected. The main run was already going with the old timer, so its logged time is wrong. `scripts/plot_runs.py` now prints two times for each run: the logged one, and the tokens divided by the median speed, which a stall does not move. For the main run only the second means anything; for the runs started after the fix the two should agree.
+### The main run
 
-The ablation runs also started after I fixed an off-by-one in the window sampler (the last window in the file could never be drawn). Their 40 fixed validation batches are therefore not the same windows as the main run's, so their curves compare with each other but not with the main run's. The full-split numbers from `evaluate.py` do not depend on the sampler.
+13,000 steps, 106.5M tokens. Over the whole validation split the final model scores 1.446 nats per token, or 0.527 bits per byte (`results/eval.jsonl`), against 2.139 and 0.780 for the seven-minute run. On the 40 fixed batches the loss was 2.54 at step 500, 2.18 at 1,000, 1.93 at 2,000, 1.74 at 4,000, 1.55 at 8,000 and 1.44 at 13,000 (`results/main_loss.png`), still falling by about 0.005 every 500 steps at the end.
 
-**Status.** The main run was at step 3,850 of 13,000 at 01:06, at about 21,000 tokens/s, with the ablation queued behind it. Its results are not in this README yet.
+Training took about 85 minutes. The 12,700 steps logged at full speed took 82.7 minutes, and the other 300, made while the laptop slept (below), add about 2 minutes at the median step time of 386 ms (21,200 tokens/s). The total in the run's own log, 347 minutes, includes the sleep and is wrong; `results/main_loss.md` shows it next to the 83.6 minutes that the median speed gives.
+
+The five samples at temperature 0.8 (`results/samples_main.txt`) are grammatical, keep track of who is who, and mostly have a plot that holds from start to end. The second begins:
+
+> Once upon a time, there was a big, healthy tree in a small park. Every day, kids would come and get the tree. They liked to play under it. The tree loved them too.
+
+and Lily climbs it, with her mother's permission. The slips are in the logic: in the first story a cat that is "small and helpless" is, a few sentences later, "too big and too fast", and the third ends by saying the driver was happy "that the people struggled to go on the truck".
+
+### What went wrong with the first launch
+
+A watcher script I had left to start the full runs once the rest of the pipeline finished launched them at 19:59, while the laptop was asleep with its lid closed, on battery. The `caffeinate -i` in `full_runs.sh` stops idle sleep, not lid-closed sleep. Until the lid was opened at 00:41, nearly five hours later, the main run moved only during the short wakes macOS makes while asleep, about 300 steps in all; then it ran at full speed (`pmset -g log` has the sleep and wake times). `train.py` timed itself with `time.time()`, the wall clock, which kept counting through the sleep: at step 300 its log claimed 4.4 hours of training for about two minutes of work. Every timer now uses `time.perf_counter()`, which is monotonic and on macOS does not advance during sleep, and `full_runs.sh` says to keep the lid open and the power connected. The main run was already going with the old timer, so its logged time is wrong. `scripts/plot_runs.py` now prints two times for each run: the logged one, and the tokens divided by the median speed, which a stall does not move. For the main run only the second means anything; for the runs started after the fix the two should agree.
+
+### The ablation
+
+Not finished yet: the ablation runs started at 02:08 on AC power, right after the main run, and their results are not in this README yet.
+
+They started after I fixed an off-by-one in the window sampler (the last window in the file could never be drawn), so their 40 fixed validation batches are not the same windows as the main run's. Their curves compare with each other but not with the main run's; the full-split numbers from `evaluate.py` do not depend on the sampler.
 
 ## Testing
 
