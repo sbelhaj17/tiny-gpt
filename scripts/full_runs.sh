@@ -4,7 +4,8 @@
 #   scripts/full_runs.sh main           # the story model, about 95 minutes on an M4
 #   scripts/full_runs.sh ablation       # rope against learned positions, about 2 x 30 minutes
 #   scripts/full_runs.sh ablation_seed  # the rope run again with another seed, about 30 minutes
-#   scripts/full_runs.sh all            # all three, one after the other
+#   scripts/full_runs.sh ablation_timed # learned positions given rope's time, about 27 minutes
+#   scripts/full_runs.sh all            # main, ablation and ablation_seed, one after the other
 #   scripts/full_runs.sh short          # the main model for 1000 steps, about 9 minutes
 #
 # Keep the Mac on AC power with the lid open. caffeinate below stops idle
@@ -64,6 +65,12 @@ ablation_seed)
     # rope and learned has to beat.
     train ablation_rope ablation_rope_seed2 --seed 1338
     plot ablation_seed "$RUNS/ablation_rope" "$RUNS/ablation_learned" "$RUNS/ablation_rope_seed2" ;;
+ablation_timed)
+    # The learned-position run is about 16% faster per step, so equal tokens
+    # is not equal time. This gives it as many steps as it can take in the
+    # time ablation_rope took: 4000 x 24,630 / 21,283 tok/s = 4,629.
+    train ablation_learned ablation_learned_timed --max_steps 4629
+    plot ablation_timed "$RUNS/ablation_rope" "$RUNS/ablation_rope_seed2" "$RUNS/ablation_learned" "$RUNS/ablation_learned_timed" ;;
 short)
     # The run I used to check the whole pipeline while building.
     train main short --max_steps 1000 --eval_interval 250
@@ -74,6 +81,6 @@ all)
     "$0" ablation
     "$0" ablation_seed ;;
 *)
-    echo "usage: $0 main|ablation|ablation_seed|all|short" >&2
+    echo "usage: $0 main|ablation|ablation_seed|ablation_timed|all|short" >&2
     exit 1 ;;
 esac
