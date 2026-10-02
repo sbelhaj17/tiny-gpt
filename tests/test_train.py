@@ -1,4 +1,5 @@
 import json
+import time
 
 import numpy as np
 import pytest
@@ -96,6 +97,34 @@ def test_resume_matches_an_uninterrupted_run(data_dir, tmp_path):
     assert a["val_loss"] == b["val_loss"]
 
 
+def test_logged_time_and_speed_count_only_training(data_dir, tmp_path, monkeypatch):
+    # A fake clock: each training step takes 0.25 s and each evaluation 100 s.
+    # Evaluations must not count toward training time or speed.
+    now = [0.0]
+    real_step, real_eval = train.train_step, train.evaluate
+
+    def step(*args):
+        now[0] += 0.25
+        return real_step(*args)
+
+    def evaluate(*args):
+        now[0] += 100.0
+        return real_eval(*args)
+
+    monkeypatch.setattr(train, "clock", lambda: now[0])
+    monkeypatch.setattr(train, "train_step", step)
+    monkeypatch.setattr(train, "evaluate", evaluate)
+    out = tmp_path / "run"
+    train.main(tiny_args(data_dir, out, max_steps=8))
+    recs = read_log(out)
+    assert [r["step"] for r in recs if "tok_per_s" in r] == [2, 4, 6, 8]
+    tokens_per_step = 4 * 16  # batch_size x block_size in tiny_args
+    for r in recs:
+        assert r["elapsed"] == pytest.approx(0.25 * r["step"])
+        if "tok_per_s" in r:
+            assert r["tok_per_s"] == pytest.approx(tokens_per_step / 0.25)
+
+
 def test_full_validation_covers_every_window_once(data_dir):
     from evaluate import full_loss
     from tinygpt.model import GPT, GPTConfig
@@ -112,6 +141,14 @@ def test_full_validation_covers_every_window_once(data_dir):
         with torch.autocast("cpu", dtype=torch.bfloat16):
             by_hand.append(model(w[:, :-1], w[:, 1:])[1].item())
     assert loss == pytest.approx(np.mean(by_hand), rel=1e-6)
+
+
+def test_training_clock_is_monotonic():
+    # time.time() is the wall clock: it can be set back or forward, and it
+    # kept counting while the laptop slept with its lid closed. A monotonic
+    # clock that nothing can adjust is perf_counter or monotonic.
+    info = time.get_clock_info(train.clock.__name__)
+    assert info.monotonic and not info.adjustable
 
 
 def test_fp16_with_fused_adamw_is_refused_on_mps():

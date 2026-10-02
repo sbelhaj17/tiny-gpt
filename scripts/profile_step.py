@@ -30,11 +30,11 @@ def mean_ms(fn, n=20, warmup=3):
     for _ in range(warmup):
         fn()
     sync(DEVICE)
-    t = time.time()
+    t = time.perf_counter()
     for _ in range(n):
         fn()
     sync(DEVICE)
-    return (time.time() - t) / n * 1000
+    return (time.perf_counter() - t) / n * 1000
 
 
 def matmuls():

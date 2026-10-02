@@ -82,20 +82,20 @@ def main():
     assert args.vocab_size <= 1 << 16, "token ids are stored as uint16"
 
     tok_path = os.path.join(args.data_dir, "tokenizer.json")
-    t = time.time()
+    t = time.perf_counter()
     sample = next(read_blocks(os.path.join(args.data_dir, SPLITS["train"]), args.bpe_mb << 20))
     tok = train_bpe(stories(sample), args.vocab_size)
     tok.save(tok_path)
-    print(f"tokenizer: {tok.vocab_size} tokens from {len(sample) / 1e6:.0f} MB in {time.time() - t:.1f}s")
+    print(f"tokenizer: {tok.vocab_size} tokens from {len(sample) / 1e6:.0f} MB in {time.perf_counter() - t:.1f}s")
 
     meta = {"vocab_size": tok.vocab_size, "eot": tok.eot}
     for split, name in SPLITS.items():
-        t = time.time()
+        t = time.perf_counter()
         ntokens, nbytes = tokenize_split(
             os.path.join(args.data_dir, name), os.path.join(args.data_dir, f"{split}.bin"), tok_path, args.workers
         )
         meta[split] = {"tokens": ntokens, "bytes": nbytes}
-        print(f"{split}: {ntokens:,} tokens, {nbytes / ntokens:.2f} bytes per token, {time.time() - t:.1f}s")
+        print(f"{split}: {ntokens:,} tokens, {nbytes / ntokens:.2f} bytes per token, {time.perf_counter() - t:.1f}s")
 
     with open(os.path.join(args.data_dir, "meta.json"), "w") as f:
         json.dump(meta, f, indent=2)

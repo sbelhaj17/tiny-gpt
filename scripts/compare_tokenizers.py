@@ -28,9 +28,9 @@ def main():
         ("gpt2", tiktoken.get_encoding("gpt2"), 50257),
     ]:
         encode = tok.encode if name == "mine" else tok.encode_ordinary
-        t = time.time()
+        t = time.perf_counter()
         ids = [encode(s) for s in docs]
-        secs = time.time() - t
+        secs = time.perf_counter() - t
         n = sum(map(len, ids))
         used = len(np.unique(np.concatenate([np.asarray(x) for x in ids if x])))
         print(f"{name}: {n:,} tokens, {nbytes / n:.2f} bytes per token, "

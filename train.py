@@ -21,6 +21,11 @@ import torch
 from tinygpt.data import Batches
 from tinygpt.model import GPT, GPTConfig
 
+# Not time.time(): the wall clock keeps running while the laptop sleeps (the
+# main run once logged four hours of sleep as training time) and jumps when the
+# system adjusts it. perf_counter is monotonic and does not advance during sleep.
+clock = time.perf_counter
+
 
 @dataclass
 class TrainConfig:
@@ -227,7 +232,7 @@ def main(argv=None):
     if step == 0:
         checkpoint_and_eval()
     sync(cfg.device)
-    t_last, step_last = time.time(), step
+    t_last, step_last = clock(), step
     while step < cfg.max_steps:
         lr = lr_at(step, cfg)
         for g in opt.param_groups:
@@ -240,7 +245,7 @@ def main(argv=None):
             if not math.isfinite(loss):
                 # Stop before a checkpoint overwrites the last good one.
                 raise RuntimeError(f"loss is {loss} at step {step}; rerun with --resume true to restart from the last checkpoint")
-            now = time.time()
+            now = clock()
             elapsed += now - t_last
             tok_s = (step - step_last) * tokens_per_step / (now - t_last)
             print(f"step {step:6d} | loss {loss:.4f} | lr {lr:.2e} | {tok_s:,.0f} tok/s")
@@ -250,10 +255,10 @@ def main(argv=None):
 
         if step % cfg.eval_interval == 0 or step == cfg.max_steps:
             sync(cfg.device)
-            elapsed += time.time() - t_last
+            elapsed += clock() - t_last
             checkpoint_and_eval()
             # evaluation and saving do not count as training time
-            t_last, step_last = time.time(), step
+            t_last, step_last = clock(), step
 
     log.close()
 

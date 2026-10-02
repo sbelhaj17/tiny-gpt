@@ -42,18 +42,18 @@ def main():
         fixed = batches.next()
         next_batch = lambda: fixed  # noqa: E731
 
-    t = time.time()
+    t = time.perf_counter()
     for _ in range(args.warmup):
         train_step(fwd, opt, scaler, next_batch, cfg)
     sync(cfg.device)
-    warmup_s = time.time() - t
+    warmup_s = time.perf_counter() - t
 
-    t = time.time()
+    t = time.perf_counter()
     for _ in range(args.steps):
         loss = train_step(fwd, opt, scaler, next_batch, cfg)
     loss.item()
     sync(cfg.device)
-    dt = time.time() - t
+    dt = time.perf_counter() - t
 
     tokens = args.steps * cfg.batch_size * cfg.block_size * cfg.grad_accum
     keys = ["n_layer", "n_embd", "block_size", "batch_size", "grad_accum", "pos_emb", "attn", "dtype", "compile", "optimizer"]
