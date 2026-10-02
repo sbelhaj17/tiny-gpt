@@ -18,11 +18,21 @@ INK, MUTED, GRID = "#0b0b0b", "#898781", "#e1e0d9"
 
 
 def read(run):
+    """The run's evaluation and training records, in step order.
+
+    A run killed between checkpoints and resumed logs the steps after its last
+    checkpoint twice; the later record of each step is the one that counts.
+    """
     with open(os.path.join(run, "log.jsonl")) as f:
         recs = [json.loads(line) for line in f]
-    evals = [r for r in recs if "val_loss" in r]
-    speeds = [r["tok_per_s"] for r in recs if "tok_per_s" in r]
-    return evals, speeds
+    evals = {r["step"]: r for r in recs if "val_loss" in r}
+    trains = {r["step"]: r for r in recs if "tok_per_s" in r}
+    return [evals[s] for s in sorted(evals)], [trains[s] for s in sorted(trains)]
+
+
+def median(xs):
+    xs = sorted(xs)
+    return xs[len(xs) // 2] if xs else float("nan")
 
 
 def main():
@@ -33,10 +43,14 @@ def main():
     args = p.parse_args()
 
     fig, ax = plt.subplots(figsize=(7, 4), dpi=150)
-    print("| run | steps | tokens | training time | val loss | bits per byte | median tok/s |")
-    print("|---|---|---|---|---|---|---|")
+    # "logged time" is the training time train.py measured. "at median speed"
+    # is the tokens divided by the median speed, which a stall in the middle of
+    # a run (the laptop sleeping, another program on the GPU) does not move;
+    # for a run without stalls the two agree.
+    print("| run | steps | tokens | logged time | at median speed | val loss | bits per byte | median tok/s |")
+    print("|---|---|---|---|---|---|---|---|")
     for run, color in zip(args.runs, COLORS):
-        evals, speeds = read(run)
+        evals, trains = read(run)
         if args.skip_first:
             evals = [e for e in evals if e["step"] > 0]
         name = os.path.basename(os.path.normpath(run))
@@ -44,9 +58,9 @@ def main():
         ys = [e["val_loss"] for e in evals]
         ax.plot(xs, ys, color=color, lw=2, solid_capstyle="round", label=name)
         last = evals[-1]
-        speed = sorted(speeds)[len(speeds) // 2] if speeds else float("nan")
+        speed = median(r["tok_per_s"] for r in trains)
         print(f"| {name} | {last['step']} | {last['tokens'] / 1e6:.1f}M | {last['elapsed'] / 60:.1f} min "
-              f"| {last['val_loss']:.3f} | {last['val_bpb']:.3f} | {speed:,.0f} |")
+              f"| {last['tokens'] / speed / 60:.1f} min | {last['val_loss']:.3f} | {last['val_bpb']:.3f} | {speed:,.0f} |")
 
     ax.set_xlabel("training tokens (millions)", color=INK)
     ax.set_ylabel("validation loss (nats per token)", color=INK)

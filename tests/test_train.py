@@ -1,5 +1,7 @@
 import json
+import math
 import time
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -7,7 +9,7 @@ import torch
 
 import train
 from tinygpt.data import Batches
-from train import TrainConfig, lr_at
+from train import TrainConfig, bits_per_byte, lr_at
 
 VOCAB = 64
 
@@ -20,8 +22,10 @@ def data_dir(tmp_path):
     perm = rng.permutation(VOCAB).astype(np.uint16)
     np.tile(perm, 200).tofile(tmp_path / "train.bin")
     np.tile(perm, 20).tofile(tmp_path / "val.bin")
+    # 4 bytes per token, so bits per byte = loss / ln 2 / 4
     meta = {"vocab_size": VOCAB, "eot": VOCAB - 1, "val": {"tokens": 1280, "bytes": 5120}}
     (tmp_path / "meta.json").write_text(json.dumps(meta))
+    (tmp_path / "tokenizer.json").write_text(json.dumps({"merges": []}))  # loaded by evaluate.py, not used
     return tmp_path
 
 
@@ -84,6 +88,8 @@ def test_training_lowers_validation_loss(data_dir, tmp_path):
     assert [r["step"] for r in evals] == [0, 100]
     assert evals[0]["val_loss"] > 3.5  # about ln(64) = 4.16
     assert evals[1]["val_loss"] < 1.0
+    for r in evals:
+        assert r["val_bpb"] == pytest.approx(r["val_loss"] / math.log(2) / 4)
     ckpt = torch.load(out / "ckpt.pt", weights_only=False)
     assert ckpt["step"] == 100
 
@@ -183,6 +189,52 @@ def test_training_clock_is_monotonic():
     # clock that nothing can adjust is perf_counter or monotonic.
     info = time.get_clock_info(train.clock.__name__)
     assert info.monotonic and not info.adjustable
+
+
+def test_evaluate_reports_bits_per_byte_once_per_checkpoint(data_dir, tmp_path):
+    import evaluate
+
+    out = tmp_path / "run"
+    train.main(tiny_args(data_dir, out, max_steps=4))
+    results = tmp_path / "eval.jsonl"
+    args = [str(out / "ckpt.pt"), "--device", "cpu", "--append", str(results)]
+    first = evaluate.main(args)
+    assert first["val_bpb"] == pytest.approx(first["val_loss"] / math.log(2) / 4, abs=1e-4)
+    # rerunning the same finished run must not add a second line
+    assert evaluate.main(args) == first
+    assert results.read_text().count("\n") == 1
+
+
+def test_plot_reads_a_resumed_log_once_per_step(tmp_path):
+    # Killed after logging step 6 but before the step-8 checkpoint, then
+    # resumed from step 4: step 6 appears twice, and the second one counts.
+    import importlib.util
+
+    path = Path(__file__).parent.parent / "scripts" / "plot_runs.py"
+    spec = importlib.util.spec_from_file_location("plot_runs", path)
+    plot_runs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(plot_runs)
+    recs = [
+        {"step": 0, "val_loss": 4.0},
+        {"step": 2, "tok_per_s": 100},
+        {"step": 4, "tok_per_s": 100},
+        {"step": 4, "val_loss": 3.0},
+        {"step": 6, "tok_per_s": 5},
+        {"step": 6, "tok_per_s": 100},
+        {"step": 8, "tok_per_s": 100},
+        {"step": 8, "val_loss": 2.0},
+    ]
+    (tmp_path / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in recs))
+    evals, trains = plot_runs.read(tmp_path)
+    assert [r["step"] for r in evals] == [0, 4, 8]
+    assert [(r["step"], r["tok_per_s"]) for r in trains] == [(2, 100), (4, 100), (6, 100), (8, 100)]
+
+
+def test_bits_per_byte():
+    # ln 2 nats is one bit, so a loss of ln 2 per token at one byte per token
+    # is one bit per byte, and spreading it over 4 bytes gives a quarter.
+    assert bits_per_byte(math.log(2), 1.0) == pytest.approx(1.0)
+    assert bits_per_byte(math.log(2), 4.0) == pytest.approx(0.25)
 
 
 def test_fp16_with_fused_adamw_is_refused_on_mps():

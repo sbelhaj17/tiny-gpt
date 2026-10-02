@@ -116,6 +116,11 @@ def lr_at(step, cfg):
     return cfg.min_lr + 0.5 * (cfg.lr - cfg.min_lr) * (1 + math.cos(math.pi * progress))
 
 
+def bits_per_byte(loss, bytes_per_token):
+    """Nats per token to bits per byte of text, which does not depend on the tokenizer."""
+    return loss / math.log(2) / bytes_per_token
+
+
 def autocast(cfg):
     if cfg.dtype == "fp32":
         return nullcontext()
@@ -217,7 +222,7 @@ def main(argv=None):
             # step's update, so an update that broke the weights first shows
             # up here. Stop before it overwrites the last good checkpoint.
             raise RuntimeError(f"validation loss is {loss} at step {step}; the last good checkpoint is kept")
-        bpb = loss / math.log(2) / bytes_per_token
+        bpb = bits_per_byte(loss, bytes_per_token)
         print(f"step {step:6d} | val loss {loss:.4f} | {bpb:.3f} bits per byte")
         write({"step": step, "tokens": step * tokens_per_step, "elapsed": elapsed, "val_loss": loss, "val_bpb": bpb})
         save_checkpoint(

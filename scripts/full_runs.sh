@@ -7,10 +7,15 @@
 #   scripts/full_runs.sh all            # all three, one after the other
 #   scripts/full_runs.sh short          # the main model for 1000 steps, about 9 minutes
 #
+# Keep the Mac on AC power with the lid open. caffeinate below stops idle
+# sleep, but closing the lid still puts the machine to sleep, and a run then
+# only advances during the brief wakes macOS makes while asleep.
+#
 # Each run checkpoints at every evaluation. If one is interrupted, run the
 # same command again: a run whose checkpoint exists resumes from it, and a
 # finished run does no more training. Logs go to runs/<name>/train.log, the
-# full validation loss of each finished run to results/eval.jsonl.
+# full validation loss of each finished run to results/eval.jsonl (once per
+# checkpoint and step, however often the script is rerun).
 #
 # To check the script end to end, point it somewhere else and cut the runs
 # short (a short run left in runs/ would be resumed by the real one later):
@@ -22,7 +27,7 @@ PY=${PY:-.venv/bin/python}
 RUNS=${RUNS:-runs}
 RESULTS=${RESULTS:-results}
 
-# Keep the Mac awake while this runs (the display may still sleep).
+# Keep the Mac from idle-sleeping while this runs (see the note on the lid above).
 if [ -z "$TINYGPT_AWAKE" ] && command -v caffeinate >/dev/null 2>&1; then
     TINYGPT_AWAKE=1 exec caffeinate -i "$0" "$@"
 fi
@@ -34,7 +39,7 @@ train() {
     mkdir -p "$RUNS/$name"
     # EXTRA is unquoted on purpose: it holds several flags
     $PY -u train.py "configs/$config.json" --out_dir "$RUNS/$name" --resume true "$@" $EXTRA 2>&1 | tee -a "$RUNS/$name/train.log"
-    $PY evaluate.py "$RUNS/$name/ckpt.pt" | tee -a "$RESULTS/eval.jsonl"
+    $PY evaluate.py "$RUNS/$name/ckpt.pt" --append "$RESULTS/eval.jsonl"
 }
 
 plot() {
