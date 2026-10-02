@@ -21,6 +21,9 @@ class GPTConfig:
 
 
 def matmul_attention(q, k, v):
+    # Under bf16 autocast the scores below are bf16 (autocast runs the softmax
+    # in fp32), so this is a little less precise than the fused kernel;
+    # scripts/attention_precision.py measures by how much.
     T = q.size(-2)
     att = (q @ k.transpose(-2, -1)) / math.sqrt(q.size(-1))
     future = torch.ones(T, T, dtype=torch.bool, device=q.device).triu(1)
