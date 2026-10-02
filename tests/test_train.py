@@ -97,6 +97,32 @@ def test_resume_matches_an_uninterrupted_run(data_dir, tmp_path):
     assert a["val_loss"] == b["val_loss"]
 
 
+def test_a_broken_update_does_not_overwrite_the_checkpoint(data_dir, tmp_path, monkeypatch):
+    # Step 8 is both logged and evaluated. Its training loss comes from before
+    # its update, so if that update fills the weights with NaN, only the
+    # evaluation can notice, and it has to stop before saving.
+    out = tmp_path / "run"
+    train.main(tiny_args(data_dir, out, max_steps=4))
+    real_step = train.train_step
+    calls = []
+
+    def nan_on_step_8(model, *args):
+        loss = real_step(model, *args)
+        calls.append(1)
+        if len(calls) == 4:  # steps 5, 6, 7, 8 after resuming at 4
+            with torch.no_grad():
+                for p in model.parameters():
+                    p.fill_(float("nan"))
+        return loss
+
+    monkeypatch.setattr(train, "train_step", nan_on_step_8)
+    with pytest.raises(RuntimeError, match="validation loss"):
+        train.main(tiny_args(data_dir, out, max_steps=8, resume=True))
+    ckpt = torch.load(out / "ckpt.pt", weights_only=False)
+    assert ckpt["step"] == 4
+    assert all(torch.isfinite(v).all() for v in ckpt["model"].values())
+
+
 def test_logged_time_and_speed_count_only_training(data_dir, tmp_path, monkeypatch):
     # A fake clock: each training step takes 0.25 s and each evaluation 100 s.
     # Evaluations must not count toward training time or speed.

@@ -212,6 +212,11 @@ def main(argv=None):
 
     def checkpoint_and_eval():
         loss = evaluate(fwd, val, val_starts, cfg)
+        if not math.isfinite(loss):
+            # The training loss logged at this step was computed before the
+            # step's update, so an update that broke the weights first shows
+            # up here. Stop before it overwrites the last good checkpoint.
+            raise RuntimeError(f"validation loss is {loss} at step {step}; the last good checkpoint is kept")
         bpb = loss / math.log(2) / bytes_per_token
         print(f"step {step:6d} | val loss {loss:.4f} | {bpb:.3f} bits per byte")
         write({"step": step, "tokens": step * tokens_per_step, "elapsed": elapsed, "val_loss": loss, "val_bpb": bpb})
