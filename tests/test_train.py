@@ -9,6 +9,7 @@ import torch
 
 import train
 from tinygpt.data import Batches
+from tinygpt.model import GPT, GPTConfig
 from train import TrainConfig, bits_per_byte, lr_at
 
 VOCAB = 64
@@ -94,14 +95,28 @@ def test_training_lowers_validation_loss(data_dir, tmp_path):
     assert ckpt["step"] == 100
 
 
-def test_resume_matches_an_uninterrupted_run(data_dir, tmp_path):
-    # Constant learning rate, so stopping at step 4 does not change the
-    # schedule. Restoring the model, the optimizer and the data sampler's
-    # position must then give exactly the weights of a run that never stopped.
-    const = dict(lr=1e-2, min_lr=1e-2, warmup_steps=0)
-    train.main(tiny_args(data_dir, tmp_path / "a", max_steps=8, **const))
-    train.main(tiny_args(data_dir, tmp_path / "b", max_steps=4, **const))
-    train.main(tiny_args(data_dir, tmp_path / "b", max_steps=8, resume=True, **const))
+def test_resume_matches_an_uninterrupted_run(data_dir, tmp_path, monkeypatch):
+    # Run b is killed right after its step-4 checkpoint and resumed. With the
+    # model, the optimizer and the data sampler's position restored, and the
+    # learning rate a function of the step alone, it must end with exactly
+    # the weights of run a, which never stopped. (CPU and fp32: GPU kernels
+    # are not guaranteed to be bitwise deterministic.)
+    class Killed(Exception):
+        pass
+
+    real_save = train.save_checkpoint
+
+    def save_then_die(path, **state):
+        real_save(path, **state)
+        if state["step"] == 4:
+            raise Killed
+
+    train.main(tiny_args(data_dir, tmp_path / "a", max_steps=8))
+    monkeypatch.setattr(train, "save_checkpoint", save_then_die)
+    with pytest.raises(Killed):
+        train.main(tiny_args(data_dir, tmp_path / "b", max_steps=8))
+    monkeypatch.undo()
+    train.main(tiny_args(data_dir, tmp_path / "b", max_steps=8, resume=True))
 
     a = torch.load(tmp_path / "a" / "ckpt.pt", weights_only=False)
     b = torch.load(tmp_path / "b" / "ckpt.pt", weights_only=False)
@@ -109,6 +124,9 @@ def test_resume_matches_an_uninterrupted_run(data_dir, tmp_path):
     for k in a["model"]:
         assert torch.equal(a["model"][k], b["model"][k]), k
     assert a["val_loss"] == b["val_loss"]
+    # The warmup and cosine were in play, not a constant rate.
+    lrs = [r["lr"] for r in read_log(tmp_path / "a") if "lr" in r]
+    assert len(set(lrs)) == len(lrs)
 
 
 def test_a_broken_update_does_not_overwrite_the_checkpoint(data_dir, tmp_path, monkeypatch):
@@ -167,7 +185,6 @@ def test_logged_time_and_speed_count_only_training(data_dir, tmp_path, monkeypat
 
 def test_full_validation_covers_every_window_once(data_dir):
     from evaluate import full_loss
-    from tinygpt.model import GPT, GPTConfig
 
     torch.manual_seed(0)
     model = GPT(GPTConfig(vocab_size=VOCAB, block_size=16, n_layer=1, n_head=2, n_embd=16)).eval()
@@ -235,6 +252,33 @@ def test_bits_per_byte():
     # is one bit per byte, and spreading it over 4 bytes gives a quarter.
     assert bits_per_byte(math.log(2), 1.0) == pytest.approx(1.0)
     assert bits_per_byte(math.log(2), 4.0) == pytest.approx(0.25)
+
+
+def test_weight_decay_skips_layer_norms():
+    # Every matrix decays (the linear layers, the tied embedding, the learned
+    # position table); layer norm gains and biases do not.
+    model = GPT(GPTConfig(vocab_size=VOCAB, block_size=16, n_layer=2, n_head=2, n_embd=16, pos_emb="learned"))
+    opt = train.make_optimizer(model, TrainConfig(device="cpu", optimizer="foreach", weight_decay=0.1))
+    by_decay = {g["weight_decay"]: {id(p) for p in g["params"]} for g in opt.param_groups}
+    norms = {id(p) for m in model.modules() if isinstance(m, torch.nn.LayerNorm) for p in m.parameters()}
+    matrices = {id(m.weight) for m in model.modules() if isinstance(m, (torch.nn.Linear, torch.nn.Embedding))}
+    assert by_decay == {0.1: matrices, 0.0: norms}
+    assert len(matrices) + len(norms) == len(list(model.parameters()))
+
+
+def test_train_step_clips_the_gradient():
+    # Plain SGD with learning rate 1 moves the weights by exactly the clipped
+    # gradient, so the size of the move is the clipping threshold.
+    torch.manual_seed(0)
+    model = GPT(GPTConfig(vocab_size=VOCAB, block_size=16, n_layer=1, n_head=2, n_embd=16))
+    cfg = TrainConfig(device="cpu", dtype="fp32", grad_clip=1e-3)
+    before = [p.detach().clone() for p in model.parameters()]
+    opt = torch.optim.SGD(model.parameters(), lr=1.0)
+    scaler = torch.amp.GradScaler("cpu", enabled=False)
+    x = torch.randint(0, VOCAB, (4, 16))
+    train.train_step(model, opt, scaler, lambda: (x, x), cfg)
+    moved = torch.sqrt(sum(((p.detach() - b) ** 2).sum() for p, b in zip(model.parameters(), before)))
+    assert moved.item() == pytest.approx(1e-3, rel=1e-4)
 
 
 def test_fp16_with_fused_adamw_is_refused_on_mps():

@@ -42,8 +42,30 @@ def test_untrained_loss_is_near_uniform():
 def test_output_layer_shares_the_embedding():
     model = GPT(small())
     assert model.lm_head.weight is model.tok_emb.weight
-    by_hand = sum(p.numel() for n, p in model.named_parameters(remove_duplicate=False) if n != "lm_head.weight")
-    assert model.num_params() == by_hand
+
+
+@pytest.mark.parametrize("pos_emb", POS)
+def test_parameter_count(pos_emb):
+    # Per block: qkv 3C^2, attention output C^2, MLP 8C^2, two layer norms 4C.
+    # Plus the embedding (counted once, it is shared with the output layer),
+    # the final layer norm, and a learned position table if there is one.
+    V, C, L, T = 4096, 384, 6, 256
+    model = GPT(GPTConfig(vocab_size=V, n_embd=C, n_layer=L, n_head=6, block_size=T, pos_emb=pos_emb))
+    expected = V * C + L * (12 * C * C + 4 * C) + 2 * C + (T * C if pos_emb == "learned" else 0)
+    assert model.num_params() == expected
+    assert model.num_params() == {"rope": 12_199_680, "learned": 12_297_984}[pos_emb]  # the README's figures
+
+
+def test_residual_projections_start_smaller():
+    # The outputs that add into the residual stream start at 0.02 / sqrt(2 x
+    # layers); everything else at 0.02.
+    torch.manual_seed(0)
+    model = GPT(small(n_embd=128, n_layer=8))
+    for name, p in model.named_parameters():
+        if p.dim() < 2:
+            continue
+        expected = 0.02 / 4 if name.endswith("proj.weight") else 0.02
+        assert p.std().item() == pytest.approx(expected, rel=0.1), name
 
 
 @pytest.mark.parametrize("pos_emb", POS)
@@ -101,9 +123,38 @@ def test_rope_scores_depend_only_on_distance():
 
 
 @pytest.mark.parametrize("pos_emb", POS)
+def test_model_uses_token_order(pos_emb):
+    # Without position information, one layer of causal attention sees the
+    # tokens before the last one as an unordered set: swapping tokens 0 and 1
+    # would leave the last logits unchanged. (With more layers the causal mask
+    # alone leaks some order, so this uses one layer.) fp64, so that "unchanged"
+    # means rounding error and the check can tell it from a real difference.
+    torch.manual_seed(0)
+    model = GPT(small(pos_emb=pos_emb, n_layer=1)).double().eval()
+    idx = torch.randperm(64)[:32].unsqueeze(0)
+    swapped = idx.clone()
+    swapped[0, [0, 1]] = idx[0, [1, 0]]
+
+    def change():
+        return (model(idx)[0][0, -1] - model(swapped)[0][0, -1]).abs().max().item()
+
+    assert change() > 1e-6
+    # The control: switch the positions off and the swap no longer matters.
+    with torch.no_grad():
+        if pos_emb == "rope":
+            model.rope_cos.fill_(1.0)
+            model.rope_sin.zero_()
+        else:
+            model.pos_emb.weight.zero_()
+    assert change() < 1e-12
+
+
+@pytest.mark.parametrize("pos_emb", POS)
 def test_memorizes_one_sequence(pos_emb):
     # A permutation, so each token has exactly one successor and greedy
-    # decoding from the first token should replay the whole sequence.
+    # decoding from the first token should replay the whole sequence. This
+    # checks that the model can learn at all; a model without positions could
+    # also pass it, which is what test_model_uses_token_order is for.
     torch.manual_seed(0)
     model = GPT(small(pos_emb=pos_emb))
     seq = torch.randperm(64)[:33].unsqueeze(0)
