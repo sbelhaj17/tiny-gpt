@@ -63,6 +63,14 @@ def test_batches_are_shifted_windows(data_dir):
         assert y[row].tolist() == tokens[s + 1 : s + 17].tolist()
 
 
+def test_every_window_can_be_drawn(tmp_path):
+    # 20 tokens and windows of 16 + 1: starts 0 to 3 are valid, and all four
+    # should turn up.
+    np.arange(20, dtype=np.uint16).tofile(tmp_path / "t.bin")
+    b = Batches(tmp_path / "t.bin", batch_size=1000, block_size=16, device="cpu")
+    assert set(b.random_starts().tolist()) == {0, 1, 2, 3}
+
+
 def test_validation_windows_are_fixed(data_dir):
     a = Batches(data_dir / "val.bin", 4, 16, "cpu", seed=1).fixed_starts(3)
     b = Batches(data_dir / "val.bin", 4, 16, "cpu", seed=2).fixed_starts(3)

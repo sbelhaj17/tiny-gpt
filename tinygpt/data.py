@@ -19,7 +19,10 @@ class Batches:
 
     def random_starts(self, rng=None):
         rng = rng or self.rng
-        return rng.integers(0, len(self.tokens) - self.block_size - 1, size=self.batch_size)
+        # A window needs block_size + 1 tokens (inputs plus the shifted
+        # targets), so the last start is len - block_size - 1. integers()
+        # excludes its upper bound.
+        return rng.integers(0, len(self.tokens) - self.block_size, size=self.batch_size)
 
     def get(self, starts):
         T = self.block_size
