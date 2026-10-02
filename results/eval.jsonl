@@ -1,2 +1,6 @@
 {"ckpt": "runs/short/ckpt.pt", "step": 1000, "tokens": 5578240, "val_loss": 2.1393, "val_bpb": 0.7799, "seconds": 105.0}
 {"ckpt": "runs/main/ckpt.pt", "step": 13000, "tokens": 5578240, "val_loss": 1.4462, "val_bpb": 0.5272, "seconds": 92.3}
+{"ckpt": "runs/ablation_rope/ckpt.pt", "step": 4000, "tokens": 5578240, "val_loss": 1.6605, "val_bpb": 0.6053, "seconds": 92.3}
+{"ckpt": "runs/ablation_learned/ckpt.pt", "step": 4000, "tokens": 5578240, "val_loss": 1.702, "val_bpb": 0.6205, "seconds": 77.9}
+{"ckpt": "runs/ablation_rope_seed2/ckpt.pt", "step": 4000, "tokens": 5578240, "val_loss": 1.6542, "val_bpb": 0.603, "seconds": 92.4}
+{"ckpt": "runs/ablation_learned_timed/ckpt.pt", "step": 4629, "tokens": 5578240, "val_loss": 1.6666, "val_bpb": 0.6075, "seconds": 78.1}

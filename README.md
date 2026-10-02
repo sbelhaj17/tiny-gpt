@@ -89,11 +89,13 @@ and a few sentences later Lily "quickly turned into a seal on its back". After s
 scripts/full_runs.sh main           # about 95 minutes
 scripts/full_runs.sh ablation       # about 55 minutes
 scripts/full_runs.sh ablation_seed  # about 30 minutes, after ablation
+scripts/full_runs.sh ablation_timed # about 30 minutes, after ablation
 ```
 
 - `configs/main.json`: the model above for 13,000 steps of 8,192 tokens, 106.5M tokens, about a fifth of the training split. At 400 ms a step that is 87 minutes of training, plus about three minutes of periodic evaluation and checkpoints and two for the final pass over the validation split.
 - `configs/ablation_rope.json` and `configs/ablation_learned.json`: the same model with rotary and with learned positions, 4,000 steps (32.8M tokens) each, with the same seed, so they see the same data in the same order. Only the position encoding differs, though the initial weights do too, because the learned run draws its position table from the same random stream. The budget is equal in tokens, not in time: the learned run should take about 23 minutes of training and the rotary run about 27. If rotary wins by less than what 16% more steps would buy, learned positions are the better choice on this machine.
 - `ablation_seed` repeats the rotary run with a different seed, which changes the initial weights and the order of the data. The gap between the two rotary runs is the noise that a difference between rotary and learned has to beat.
+- `ablation_timed` runs the learned model for as many steps as fit in the rotary run's time, 4,629, to answer the equal-time question directly.
 
 Each run writes `runs/<name>/log.jsonl` and checkpoints; the script then adds the full validation loss to `results/eval.jsonl` and writes loss curves and a summary table to `results/`, and five sample stories from the main model to `results/samples_main.txt`.
 
@@ -119,9 +121,22 @@ A watcher script I had left to start the full runs once the rest of the pipeline
 
 ### The ablation
 
-Not finished yet: the ablation runs started at 02:08 on AC power, right after the main run, and their results are not in this README yet.
+Rotary against learned position embeddings, everything else the same. Loss and bits per byte are over the whole validation split (`results/eval.jsonl`); times and speeds are from the runs' own logs (`results/ablation_timed.md`, curves in `results/ablation_timed.png`):
 
-They started after I fixed an off-by-one in the window sampler (the last window in the file could never be drawn), so their 40 fixed validation batches are not the same windows as the main run's. Their curves compare with each other but not with the main run's; the full-split numbers from `evaluate.py` do not depend on the sampler.
+| run | steps | tokens | training time | median tok/s | val loss | bits per byte |
+|---|---|---|---|---|---|---|
+| rotary | 4,000 | 32.8M | 25.7 min | 21,283 | 1.6605 | 0.6053 |
+| rotary, second seed | 4,000 | 32.8M | 25.7 min | 21,288 | 1.6542 | 0.6030 |
+| learned | 4,000 | 32.8M | 22.6 min | 24,630 | 1.7020 | 0.6205 |
+| learned, rotary's time | 4,629 | 37.9M | 26.6 min | 23,849 | 1.6666 | 0.6075 |
+
+**For the same tokens, rotary is clearly better.** The learned run ends 0.042 nats above the first rotary run and 0.048 above the second, while the two rotary runs differ from each other by 0.006. The gap is seven or eight times the seed-to-seed noise. On the 40 fixed batches the learned run is behind at every evaluation, by 0.18 at step 500, narrowing to 0.04 at the end.
+
+**For the same time, it is close.** Learned positions make a step 16% faster here (see "Rotary embeddings are not free" above). So `scripts/full_runs.sh ablation_timed` gives the learned model 4,629 steps, the number that fit in the rotary run's 25.7 minutes at the first learned run's speed, with the cosine stretched to match. It ran 3% slower than that run (on battery this time; the others were on AC) and so actually got 26.6 minutes, almost a minute more than rotary. It still finished behind both rotary runs, by 0.006 and 0.012, about one seed gap.
+
+So on this machine rotary wins per token by a wide margin and per minute by a hair, and it stays the default. With two rotary seeds and one learned seed per setting I would not claim more than that: the time-matched difference is no bigger than the noise between seeds.
+
+These runs started after I fixed an off-by-one in the window sampler (the last window in the file could never be drawn), so their 40 fixed validation batches are not the same windows as the main run's. Their curves compare with each other but not with the main run's; the full-split numbers from `evaluate.py` do not depend on the sampler.
 
 ## Testing
 
