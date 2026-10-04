@@ -1,0 +1,73 @@
+torch 2.10.0, fake MPS tensors of shape 32 x 6 x 256 x 64, views left out
+
+sdpa, bf16 under autocast, with gradients (training)
+  forward:  _to_copy -> float32
+            _to_copy -> float32
+            _to_copy -> float32
+            mul -> float32
+            ones -> bool
+            tril -> bool
+            scalar_tensor -> float32
+            scalar_tensor -> float32
+            where -> float32
+            mul -> float32
+            bmm -> float32
+            add -> float32
+            _safe_softmax -> float32
+            bmm -> float32
+            _to_copy -> bfloat16
+            _to_copy -> bfloat16
+  backward: _to_copy -> float32
+            bmm -> float32
+            bmm -> float32
+            _softmax_backward_data -> float32
+            bmm -> float32
+            bmm -> float32
+            mul -> float32
+            mul -> float32
+            _to_copy -> bfloat16
+            _to_copy -> bfloat16
+            _to_copy -> bfloat16
+
+sdpa, bf16 under autocast, no gradients (evaluation)
+  forward:  _scaled_dot_product_attention_math_for_mps -> bfloat16, bfloat16
+
+sdpa, fp32, with gradients
+  forward:  mul -> float32
+            ones -> bool
+            tril -> bool
+            scalar_tensor -> float32
+            scalar_tensor -> float32
+            where -> float32
+            mul -> float32
+            bmm -> float32
+            add -> float32
+            _safe_softmax -> float32
+            bmm -> float32
+  backward: bmm -> float32
+            bmm -> float32
+            _softmax_backward_data -> float32
+            bmm -> float32
+            bmm -> float32
+            mul -> float32
+            mul -> float32
+
+matmul_attention, bf16 under autocast, with gradients
+  forward:  bmm -> bfloat16
+            div -> bfloat16
+            ones -> bool
+            triu -> bool
+            masked_fill -> bfloat16
+            _to_copy -> float32
+            _softmax -> float32
+            _to_copy -> bfloat16
+            bmm -> bfloat16
+  backward: bmm -> bfloat16
+            bmm -> bfloat16
+            _to_copy -> float32
+            _softmax_backward_data -> float32
+            _to_copy -> bfloat16
+            masked_fill -> bfloat16
+            div -> bfloat16
+            bmm -> bfloat16
+            bmm -> bfloat16
