@@ -30,6 +30,11 @@ def read(run):
     return [evals[s] for s in sorted(evals)], [trains[s] for s in sorted(trains)]
 
 
+def eval_batches(run):
+    with open(os.path.join(run, "config.json")) as f:
+        return json.load(f)["eval_batches"]
+
+
 def median(xs):
     xs = sorted(xs)
     return xs[len(xs) // 2] if xs else float("nan")
@@ -46,8 +51,12 @@ def main():
     # "logged time" is the training time train.py measured. "at median speed"
     # is the tokens divided by the median speed, which a stall in the middle of
     # a run (the laptop sleeping, another program on the GPU) does not move;
-    # for a run without stalls the two agree.
-    print("| run | steps | tokens | logged time | at median speed | val loss | bits per byte | median tok/s |")
+    # for a run without stalls the two agree. The loss columns are the last
+    # evaluation train.py logged, on its fixed validation batches, not
+    # evaluate.py's pass over the whole split (results/eval.jsonl).
+    n = "/".join(str(b) for b in sorted({eval_batches(run) for run in args.runs}))
+    print(f"| run | steps | tokens | logged time | at median speed | val loss ({n} batches) "
+          f"| bits per byte ({n} batches) | median tok/s |")
     print("|---|---|---|---|---|---|---|---|")
     for run, color in zip(args.runs, COLORS):
         evals, trains = read(run)
