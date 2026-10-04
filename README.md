@@ -6,7 +6,7 @@ Everything except PyTorch itself is here: a byte-level BPE tokenizer, a data pip
 
 I built it to understand each part of a GPT well enough to write it myself, and to find out what actually makes training fast on the hardware I have rather than on the GPUs most guides assume. Several of the usual answers turned out not to apply.
 
-All numbers below were measured on an Apple M4 MacBook Pro (10 CPU cores, 10 GPU cores, 24 GB of memory), PyTorch 2.10 on the MPS backend, Python 3.14. The timings and the short run were on battery with Low Power Mode off; the full runs were on AC power once they ran at full speed (see below).
+All numbers below were measured on an Apple M4 MacBook Pro (10 CPU cores, 10 GPU cores, 24 GB of memory), PyTorch 2.10 on the MPS backend, Python 3.14. The timings and the short run were on battery with Low Power Mode off; the full runs were on AC power once they ran at full speed (see below), except the time-matched ablation run, which was on battery.
 
 ## How it works
 
@@ -107,7 +107,7 @@ Each run writes `runs/<name>/log.jsonl` and checkpoints; the script then adds th
 
 13,000 steps, 106.5M tokens. Over the whole validation split the final model scores 1.446 nats per token, or 0.527 bits per byte (`results/eval.jsonl`), against 2.139 and 0.780 for the seven-minute run. On the 40 fixed batches the loss was 2.54 at step 500, 2.18 at 1,000, 1.93 at 2,000, 1.74 at 4,000, 1.55 at 8,000 and 1.44 at 13,000 (`results/main_loss.png`), still falling by about 0.005 every 500 steps at the end.
 
-Training took about 85 minutes. The 12,700 steps logged at full speed took 82.7 minutes, and the other 300, made while the laptop slept (below), add about 2 minutes at the median step time of 386 ms (21,200 tokens/s). The total in the run's own log, 347 minutes, includes the sleep and is wrong; `results/main_loss.md` shows it next to the 83.6 minutes that the median speed gives.
+Training took about 85 minutes. The 12,700 steps logged at full speed took 82.7 minutes, and the first 300, most of them made while the laptop slept (below), add about 2 minutes at the median step time of 386 ms (21,200 tokens/s). The total in the run's own log, 347 minutes, includes the sleep and is wrong; `results/main_loss.md` shows it next to the 83.6 minutes that the median speed gives.
 
 The five samples at temperature 0.8 (`results/samples_main.txt`) are grammatical, keep track of who is who, and mostly have a plot that holds from start to end. The second begins:
 
@@ -117,7 +117,7 @@ and Lily climbs it, with her mother's permission. The slips are in the logic: in
 
 ### What went wrong with the first launch
 
-A watcher script I had left to start the full runs once the rest of the pipeline finished launched them at 19:59, while the laptop was asleep with its lid closed, on battery. The `caffeinate -i` in `full_runs.sh` stops idle sleep, not lid-closed sleep. Until the lid was opened at 00:41, nearly five hours later, the main run moved only during the short wakes macOS makes while asleep, about 300 steps in all; then it ran at full speed (`pmset -g log` has the sleep and wake times). `train.py` timed itself with `time.time()`, the wall clock, which kept counting through the sleep: at step 300 its log claimed 4.4 hours of training for about two minutes of work. Every timer now uses `time.perf_counter()`, which is monotonic and on macOS does not advance during sleep, and `full_runs.sh` says to keep the lid open and the power connected. The main run was already going with the old timer, so its logged time is wrong. `scripts/plot_runs.py` now prints two times for each run: the logged one, and the tokens divided by the median speed, which a stall does not move. For the main run only the second means anything; for the runs started after the fix the two should agree.
+A watcher script I had left to start the full runs once the rest of the pipeline finished launched them at 19:59, while the laptop was asleep with its lid closed, on battery. The `caffeinate -i` in `full_runs.sh` stops idle sleep, not lid-closed sleep. Until the lid was opened at 00:41, nearly five hours later, the main run moved only during the short wakes macOS makes while asleep, between 250 and 300 steps in all (its log has steps 250 to 300 taking 430 seconds and every later 50 steps about 20, so the lid opened in between); then it ran at full speed (`pmset -g log` has the sleep and wake times). `train.py` timed itself with `time.time()`, the wall clock, which kept counting through the sleep: at step 300 its log claimed 4.4 hours of training for about two minutes of work. Every timer now uses `time.perf_counter()`, which is monotonic and on macOS does not advance during sleep, and `full_runs.sh` says to keep the lid open and the power connected. The main run was already going with the old timer, so its logged time is wrong. `scripts/plot_runs.py` now prints two times for each run: the logged one, and the tokens divided by the median speed, which a stall does not move. For the main run only the second means anything; for the runs started after the fix the two should agree.
 
 ### The ablation
 
@@ -130,7 +130,7 @@ Rotary against learned position embeddings, everything else the same. Loss and b
 | learned | 4,000 | 32.8M | 22.6 min | 24,630 | 1.7020 | 0.6205 |
 | learned, rotary's time | 4,629 | 37.9M | 26.6 min | 23,849 | 1.6666 | 0.6075 |
 
-**For the same tokens, rotary is clearly better.** The learned run ends 0.042 nats above the first rotary run and 0.048 above the second, while the two rotary runs differ from each other by 0.006. The gap is seven or eight times the seed-to-seed noise. On the 40 fixed batches the learned run is behind at every evaluation, by 0.18 at step 500, narrowing to 0.04 at the end.
+**For the same tokens, rotary is clearly better.** The learned run ends 0.042 nats above the first rotary run and 0.048 above the second, while the two rotary runs differ from each other by 0.006. The two gaps are 6.6 and 7.6 times the seed-to-seed noise (0.0415 and 0.0478 against 0.0063). On the 40 fixed batches the learned run is behind at every evaluation, by 0.18 at step 500, narrowing to 0.04 at the end.
 
 **For the same time, it is close.** Learned positions make a step 16% faster here (see "Rotary embeddings are not free" above). So `scripts/full_runs.sh ablation_timed` gives the learned model 4,629 steps, the number that fit in the rotary run's 25.7 minutes at the first learned run's speed, with the cosine stretched to match. It ran 3% slower than that run (on battery this time; the others were on AC) and so actually got 26.6 minutes, almost a minute more than rotary. It still finished behind both rotary runs, by 0.006 and 0.012, about one seed gap.
 
