@@ -1,13 +1,15 @@
-"""How far bf16 attention lands from fp32, written out against the fused kernel.
+"""How far bf16 attention lands from fp32, written out against sdpa.
 
     python scripts/attention_precision.py
 
 Under bf16 autocast the written-out version multiplies queries and keys in
 bf16, so the attention scores are bf16; autocast then runs the softmax in fp32
-and the second matmul in bf16 again. The fused kernel takes bf16 inputs too but
-may keep more precision inside. This compares both to the same attention in
-fp32, on five sets of random inputs of one layer's shape (8 sequences, 6 heads,
-256 tokens, 64 dims), and prints the largest and the mean absolute error.
+and the second matmul in bf16 again. sdpa takes bf16 inputs too. The inputs
+here need no gradients, so on MPS sdpa runs MPS's own attention kernel, not the
+fp32 fallback it takes in training (results/sdpa_dispatch.txt). This compares
+both to the same attention in fp32, on five sets of random inputs of one
+layer's shape (8 sequences, 6 heads, 256 tokens, 64 dims), and prints the
+largest and the mean absolute error.
 """
 
 import os

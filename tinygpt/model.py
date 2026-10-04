@@ -15,14 +15,16 @@ class GPTConfig:
     n_embd: int = 384
     pos_emb: str = "rope"  # "rope" or "learned"
     # "matmul" writes attention out as two matmuls and a softmax; "sdpa" is
-    # PyTorch's fused kernel. On MPS the written-out version is faster (see
-    # the README), and the tests check the two against each other.
+    # F.scaled_dot_product_attention. On MPS, when gradients are needed, sdpa
+    # has no kernel of its own and falls back to a generic version in fp32, so
+    # under bf16 the written-out version is faster (see the README and
+    # results/sdpa_dispatch.txt). The tests check the two against each other.
     attn: str = "matmul"
 
 
 def matmul_attention(q, k, v):
     # Under bf16 autocast the scores below are bf16 (autocast runs the softmax
-    # in fp32), so this is a little less precise than the fused kernel;
+    # in fp32), so this is a little less precise than sdpa;
     # scripts/attention_precision.py measures by how much.
     T = q.size(-2)
     att = (q @ k.transpose(-2, -1)) / math.sqrt(q.size(-1))

@@ -6,7 +6,7 @@ Three measurements, each the mean over repeated calls after a few warmup calls:
 1. matmul throughput in fp32, fp16 and bf16, at the shape of the MLP's first
    layer (32 x 256 tokens, 384 -> 1536) and at a large square shape;
 2. one layer's attention (32 sequences, 6 heads, 256 tokens, 64 dims),
-   forward and backward, with PyTorch's fused kernel and written out;
+   forward and backward, with F.scaled_dot_product_attention and written out;
 3. a whole step of the 6-layer model split into forward, backward, and
    gradient clipping plus AdamW.
 """
